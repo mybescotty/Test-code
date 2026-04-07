@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Inventory MRP Analyser — HxGN EAM</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{--blue-dark:#1F4E79;--blue-mid:#2E75B6;--blue-light:#D6E4F0;--orange:#E67E22;--green:#27AE60;--red:#E74C3C;--grey-bg:#F4F6F9;--grey-border:#CBD5E0;--text:#2D3748}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--grey-bg);color:var(--text);line-height:1.5}
+header{background:var(--blue-dark);color:#fff;padding:18px 32px;display:flex;align-items:center;gap:16px}
+header h1{font-size:1.4rem;font-weight:700}
+header p{font-size:.85rem;opacity:.8}
+main{max-width:1400px;margin:0 auto;padding:28px 24px}
+.section{background:#fff;border-radius:10px;border:1px solid var(--grey-border);padding:28px;margin-bottom:24px}
+.section h2{font-size:1.1rem;color:var(--blue-dark);margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid var(--blue-light)}
+.upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.upload-card{border:2px dashed var(--grey-border);border-radius:8px;padding:20px;transition:border-color .2s}
+.upload-card.has-file{border-color:var(--green);background:#F0FFF4}
+.upload-card h3{font-size:.95rem;color:var(--blue-dark);margin-bottom:6px}
+.upload-card p{font-size:.8rem;color:#718096;margin-bottom:14px}
+.file-input-wrap input[type=file]{width:100%;padding:8px;border:1px solid var(--grey-border);border-radius:6px;background:#fff;font-size:.85rem;cursor:pointer}
+.file-label{display:block;font-size:.8rem;margin-top:6px;color:#718096}
+#mapping-section{display:none}
+.mapping-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.mapping-sheet{border:1px solid var(--blue-light);border-radius:8px;padding:16px}
+.mapping-sheet h3{font-size:.9rem;font-weight:700;color:var(--blue-dark);margin-bottom:12px}
+.mapping-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.mapping-row label{flex:0 0 160px;font-size:.82rem}
+.mapping-row select{flex:1;padding:5px 8px;border:1px solid var(--grey-border);border-radius:5px;font-size:.82rem}
+.mapping-row select.ok{border-color:var(--green);background:#F0FFF4}
+.mapping-row select.warn{border-color:var(--orange);background:#FFF8F0}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 24px;border:none;border-radius:6px;font-size:.9rem;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--blue-mid);color:#fff}
+.btn-success{background:var(--green);color:#fff}
+.btn:not(:disabled):hover{opacity:.87}
+.btn-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+#progress-bar-wrap{display:none;margin-top:16px}
+.progress-bar-bg{background:var(--blue-light);border-radius:9999px;height:8px;overflow:hidden}
+.progress-bar-fill{height:100%;background:var(--blue-mid);border-radius:9999px;width:0%;transition:width .4s}
+#status-msg{margin-top:10px;font-size:.85rem;color:var(--blue-dark)}
+.error-box{background:#FFF5F5;border:1px solid #FEB2B2;border-radius:6px;padding:14px 18px;color:#C53030;font-size:.85rem;display:none;margin-top:16px}
+.error-box pre{white-space:pre-wrap;margin-top:8px;font-size:.78rem}
+#dashboard-section{display:none}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:24px}
+.kpi-card{border-radius:8px;padding:16px 20px;text-align:center}
+.kpi-card .kpi-value{font-size:2rem;font-weight:800;line-height:1}
+.kpi-card .kpi-label{font-size:.78rem;margin-top:4px;opacity:.85}
+.kpi-blue{background:var(--blue-dark);color:#fff}
+.kpi-green{background:#EBF8F0;color:var(--green)}
+.kpi-orange{background:#FFF3E0;color:var(--orange)}
+.kpi-red{background:#FFF5F5;color:var(--red)}
+.kpi-grey{background:#EDF2F7;color:#4A5568}
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:20px}
+.chart-card{border:1px solid var(--grey-border);border-radius:8px;padding:20px}
+.chart-card h3{font-size:.9rem;font-weight:700;color:var(--blue-dark);margin-bottom:14px}
+.chart-card canvas{max-height:300px}
+#download-section{display:none}
+.download-card{background:linear-gradient(135deg,#1F4E79,#2E75B6);border-radius:10px;padding:28px;color:#fff;text-align:center}
+.download-card h3{font-size:1.2rem;margin-bottom:8px}
+.download-card p{opacity:.85;margin-bottom:20px;font-size:.9rem}
+</style>
+</head>
+<body>
+<header>
+  <svg width="36" height="36" viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="8" fill="#2E75B6"/><path d="M8 26V14l10-6 10 6v12H22v-6h-8v6H8Z" fill="white" opacity="0.9"/><rect x="15" y="20" width="6" height="6" fill="#1F4E79"/></svg>
+  <div><h1>Inventory MRP Analyser</h1><p>HxGN EAM — Storeroom MIN/MAX Optimisation &nbsp;|&nbsp; No server required — runs entirely in your browser</p></div>
+</header>
+<main>
+
+<div class="section">
+  <h2>Step 1 — Upload EAM Exports</h2>
+  <div class="upload-grid">
+    <div class="upload-card" id="card-stock">
+      <h3>Stock On Hand</h3>
+      <p>Part number · Description · Qty on hand · Unit cost · Store / Location</p>
+      <div class="file-input-wrap">
+        <input type="file" id="file-stock" accept=".xlsx,.xls" onchange="fileSelected(this,'card-stock','lbl-stock')">
+        <span class="file-label" id="lbl-stock">No file chosen</span>
+      </div>
+    </div>
+    <div class="upload-card" id="card-trans">
+      <h3>Transactions (12 months)</h3>
+      <p>Part · Date · Type (I / REC / STTK) · Qty · Work Order · Asset · To/From Code</p>
+      <div class="file-input-wrap">
+        <input type="file" id="file-trans" accept=".xlsx,.xls" onchange="fileSelected(this,'card-trans','lbl-trans')">
+        <span class="file-label" id="lbl-trans">No file chosen</span>
+      </div>
+    </div>
+    <div class="upload-card" id="card-minmax">
+      <h3>Current MIN / MAX</h3>
+      <p>Part number · Current MIN · Current MAX · Lead time (days)</p>
+      <div class="file-input-wrap">
+        <input type="file" id="file-minmax" accept=".xlsx,.xls" onchange="fileSelected(this,'card-minmax','lbl-minmax')">
+        <span class="file-label" id="lbl-minmax">No file chosen</span>
+      </div>
+    </div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" id="btn-detect" onclick="detectColumns()" disabled>Detect Columns</button>
+  </div>
+  <div id="progress-bar-wrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-bar"></div></div>
+    <p id="status-msg"></p>
+  </div>
+  <div class="error-box" id="error-box"><strong>Error</strong><pre id="error-detail"></pre></div>
+</div>
+
+<div class="section" id="mapping-section">
+  <h2>Step 2 — Confirm Column Mapping</h2>
+  <p style="font-size:.85rem;color:#718096;margin-bottom:18px">Green = auto-detected, orange = not found (select manually). All <strong>starred</strong> columns must be mapped.</p>
+  <div class="mapping-grid" id="mapping-grid"></div>
+  <div class="btn-row">
+    <button class="btn btn-primary" id="btn-analyse" onclick="runAnalysis()" disabled>Run MRP Analysis</button>
+  </div>
+</div>
+
+<div class="section" id="dashboard-section">
+  <h2>Analysis Dashboard</h2>
+  <div class="kpi-grid" id="kpi-grid"></div>
+  <div class="charts-grid">
+    <div class="chart-card"><h3>Parts by Classification</h3><canvas id="chart-class"></canvas></div>
+    <div class="chart-card"><h3>Stock Status</h3><canvas id="chart-status"></canvas></div>
+    <div class="chart-card" style="grid-column:1/-1"><h3>Monthly Total Consumption Trend</h3><canvas id="chart-trend"></canvas></div>
+    <div class="chart-card" style="grid-column:1/-1"><h3>Top 20 Overstocked — Current Stock vs Recommended MAX</h3><canvas id="chart-overstock"></canvas></div>
+  </div>
+</div>
+
+<div class="section" id="download-section">
+  <div class="download-card">
+    <h3>Analysis Complete</h3>
+    <p>Three-tab Excel workbook ready: MRP Recommendations · Exceptions · Monthly Consumption</p>
+    <button class="btn btn-success" onclick="downloadExcel()">Download Excel Report</button>
+  </div>
+</div>
+
+</main>
+<script>
+// ── Column alias maps (ported from app.py) ──────────────────────────────────
+const STOCK_ALIASES = {
+  part_number: ['part number','part no','part#','partno','item number','item no','part code','stock code','part'],
+  description: ['description','desc','part description','item description'],
+  qty_on_hand: ['qty on hand','quantity on hand','qty oh','on hand','qoh','stock qty','balance','current stock','qty'],
+  unit_cost:   ['unit cost','cost','price','unit price','std cost'],
+  store:       ['store','location','storeroom','warehouse','store/location'],
+};
+const TRANS_ALIASES = {
+  part_number:  ['part number','part no','part#','partno','item number','item no','part code','stock code','part'],
+  posting_date: ['posting date','date','transaction date','posted date','trans date','post date'],
+  trans_type:   ['transaction type','trans type','type','tran type','transaction','trans'],
+  trans_qty:    ['transaction qty','trans qty','quantity','qty','transaction quantity','trans quantity','amount'],
+  work_order:   ['work order','wo','work order no','wo number','work order #'],
+  asset:        ['fleet/bus number','asset','bus number','fleet number','equipment','asset number','fleet','bus no'],
+  to_from_code: ['to/from code','tocode','fromcode','to code','from code','to/from','store code','destination'],
+};
+const MINMAX_ALIASES = {
+  part_number:  ['part number','part no','part#','partno','item number','item no','part code','stock code','part'],
+  current_min:  ['current min','min','minimum','min qty','min level'],
+  current_max:  ['current max','max','maximum','max qty','max level'],
+  lead_time:    ['lead time','lead time days','lt','lead days','replenishment time'],
+};
+const REQUIRED = {
+  stock:  ['part_number','qty_on_hand'],
+  trans:  ['part_number','posting_date','trans_type','trans_qty','to_from_code'],
+  minmax: ['part_number','current_min','current_max'],
+};
+const KEY_LABELS = {
+  part_number:'Part Number *', description:'Description', qty_on_hand:'Qty on Hand *',
+  unit_cost:'Unit Cost', store:'Store / Location', posting_date:'Posting Date *',
+  trans_type:'Trans Type *', trans_qty:'Trans Qty *', work_order:'Work Order',
+  asset:'Asset / Fleet', to_from_code:'To/From Code *',
+  current_min:'Current MIN *', current_max:'Current MAX *', lead_time:'Lead Time (days)',
+};
+const SHEET_INFO = {
+  stock:  {label:'Stock On Hand',   prefix:'stock'},
+  trans:  {label:'Transactions',    prefix:'trans'},
+  minmax: {label:'Current MIN/MAX', prefix:'minmax'},
+};
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function norm(s){ return String(s).trim().toLowerCase().replace(/\s+/g,' '); }
+
+function detectCols(columns, aliasMap){
+  const nc = {};
+  columns.forEach(c => nc[norm(c)] = c);
+  const out = {};
+  for(const [key, aliases] of Object.entries(aliasMap)){
+    out[key] = null;
+    for(const a of aliases){ if(nc[norm(a)]){ out[key]=nc[norm(a)]; break; } }
+  }
+  return out;
+}
+
+async function readExcel(file){
+  const ab = await file.arrayBuffer();
+  const wb = XLSX.read(new Uint8Array(ab), {type:'array', cellDates:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+  const columns = rows.length ? Object.keys(rows[0]) : [];
+  return {columns, rows};
+}
+
+function toYearMonth(val){
+  if(!val) return null;
+  const d = val instanceof Date ? val : new Date(val);
+  if(isNaN(d.getTime())) return null;
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+
+function consumptionQty(type, code, qty){
+  const t = String(type).trim().toUpperCase();
+  const c = String(code).trim().toUpperCase();
+  const q = Number(qty)||0;
+  if(t==='I'){
+    if(c==='EVNT' && q<0) return Math.abs(q);
+    if(c==='STOR' && q>0) return -q;
+  }
+  if(t==='REC'  && c==='EVNT') return Math.abs(q);
+  if(t==='STTK' && q<0)        return Math.abs(q);
+  return 0;
+}
+
+function modeOrderQty(qtys){
+  const pos = qtys.filter(q=>q>0).map(q=>Math.round(q));
+  if(!pos.length) return 10;
+  const freq={};
+  pos.forEach(v=>freq[v]=(freq[v]||0)+1);
+  return parseInt(Object.entries(freq).sort((a,b)=>b[1]-a[1])[0][0]);
+}
+
+function popStd(arr, mean){
+  if(arr.length===0) return 0;
+  return Math.sqrt(arr.reduce((s,x)=>s+(x-mean)**2,0)/arr.length);
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+let _parsedFiles   = {};
+let _detectedMaps  = {};
+let _analysisResult = null;
+let _chartInstances = {};
+</script>
+<script>
+// ── Core MRP analysis engine ─────────────────────────────────────────────────
+function runMRP(stockRows, transRows, minmaxRows, colMaps){
+  // Helper: get field value from row using mapped column name
+  function g(row, map, key){ return map[key] ? row[map[key]] : ''; }
+
+  // Index stock by part number
+  const stockIdx = new Map();
+  for(const row of stockRows){
+    const pn = String(g(row, colMaps.stock, 'part_number')||'').trim().toUpperCase();
+    if(pn) stockIdx.set(pn, row);
+  }
+
+  // Index minmax by part number
+  const mmIdx = new Map();
+  for(const row of minmaxRows){
+    const pn = String(g(row, colMaps.minmax, 'part_number')||'').trim().toUpperCase();
+    if(pn) mmIdx.set(pn, row);
+  }
+
+  // Collect all unique parts
+  const allParts = new Set();
+  stockRows.forEach(r=>{ const p=String(g(r,colMaps.stock,'part_number')||'').trim().toUpperCase(); if(p) allParts.add(p); });
+  transRows.forEach(r=>{ const p=String(g(r,colMaps.trans,'part_number')||'').trim().toUpperCase(); if(p) allParts.add(p); });
+  minmaxRows.forEach(r=>{ const p=String(g(r,colMaps.minmax,'part_number')||'').trim().toUpperCase(); if(p) allParts.add(p); });
+
+  // Build consumption map: part -> month -> total consumption
+  // Also build goods_in map: part -> [REC-STOR qtys]
+  const consumptionMap = new Map(); // part -> Map<month, qty>
+  const goodsInMap = new Map();     // part -> [qty, ...]
+  const allMonthsSet = new Set();
+
+  for(const row of transRows){
+    const pn   = String(g(row, colMaps.trans, 'part_number')||'').trim().toUpperCase();
+    const type = String(g(row, colMaps.trans, 'trans_type')||'');
+    const code = String(g(row, colMaps.trans, 'to_from_code')||'');
+    const qty  = Number(g(row, colMaps.trans, 'trans_qty'))||0;
+    const date = g(row, colMaps.trans, 'posting_date');
+    const month = toYearMonth(date);
+    if(!pn || !month) continue;
+    allMonthsSet.add(month);
+
+    const cons = consumptionQty(type, code, qty);
+    if(cons !== 0){
+      if(!consumptionMap.has(pn)) consumptionMap.set(pn, new Map());
+      const pm = consumptionMap.get(pn);
+      pm.set(month, (pm.get(month)||0) + cons);
+    }
+
+    // Track REC-STOR for order qty mode
+    if(String(type).trim().toUpperCase()==='REC' && String(code).trim().toUpperCase()==='STOR' && qty>0){
+      if(!goodsInMap.has(pn)) goodsInMap.set(pn, []);
+      goodsInMap.get(pn).push(qty);
+    }
+  }
+
+  // Sort months, take last 12
+  const allMonths = Array.from(allMonthsSet).sort().slice(-12);
+
+  // Per-part analysis
+  const recs = [];
+  for(const part of allParts){
+    // 12-month consumption array
+    const pm = consumptionMap.get(part) || new Map();
+    const monthlyArr = allMonths.map(m => pm.get(m)||0);
+    const monthsWithUsage = monthlyArr.filter(v=>v>0).length;
+    const totalConsumption = monthlyArr.reduce((s,v)=>s+v,0);
+    const meanMonthly = monthlyArr.length ? totalConsumption/monthlyArr.length : 0;
+    const stdMonthly  = popStd(monthlyArr, meanMonthly);
+    const peakMonthly = monthlyArr.length ? Math.max(...monthlyArr) : 0;
+
+    // Classification
+    let classification;
+    if(monthsWithUsage === 0) classification = 'Dead Stock';
+    else if(monthsWithUsage >= allMonths.length * 0.5) classification = 'Fast Mover';
+    else classification = 'Slow Mover';
+
+    // Lead time
+    let leadDays = 7;
+    if(mmIdx.has(part)){
+      const lt = Number(g(mmIdx.get(part), colMaps.minmax, 'lead_time'));
+      if(lt > 0) leadDays = lt;
+    }
+
+    // Current MIN/MAX
+    let curMin=0, curMax=0;
+    if(mmIdx.has(part)){
+      curMin = Number(g(mmIdx.get(part), colMaps.minmax, 'current_min'))||0;
+      curMax = Number(g(mmIdx.get(part), colMaps.minmax, 'current_max'))||0;
+    }
+
+    // Stock info
+    let qtyOh=0, unitCost=0, description='', store='';
+    if(stockIdx.has(part)){
+      const sr = stockIdx.get(part);
+      qtyOh       = Number(g(sr, colMaps.stock, 'qty_on_hand'))||0;
+      unitCost    = Number(g(sr, colMaps.stock, 'unit_cost'))||0;
+      description = String(g(sr, colMaps.stock, 'description')||'');
+      store       = String(g(sr, colMaps.stock, 'store')||'');
+    }
+
+    // Recommended MIN/MAX
+    let recMin, recMax;
+    if(classification === 'Fast Mover'){
+      const meanDaily  = meanMonthly / 30;
+      const safetySt   = 1.65 * stdMonthly * Math.sqrt(leadDays / 30);
+      recMin = Math.ceil(meanDaily * leadDays + safetySt);
+      const oq = goodsInMap.has(part) ? modeOrderQty(goodsInMap.get(part)) : Math.max(10, Math.round(meanMonthly * 1.5));
+      recMax = recMin + oq;
+    } else if(classification === 'Slow Mover'){
+      recMin = 1; recMax = 2;
+    } else {
+      recMin = 0; recMax = 0;
+    }
+
+    const overstocked  = recMax > 0 ? qtyOh > 2 * recMax : false;
+    const understocked = qtyOh < recMin;
+
+    recs.push({
+      part_number: part, description, store, classification,
+      qty_on_hand: qtyOh, unit_cost: unitCost,
+      stock_value: Math.round(qtyOh * unitCost * 100)/100,
+      mean_monthly_consumption: Math.round(meanMonthly*100)/100,
+      std_monthly_consumption:  Math.round(stdMonthly*100)/100,
+      peak_monthly_consumption: Math.round(peakMonthly*100)/100,
+      months_with_usage: monthsWithUsage,
+      total_12m_consumption: Math.round(totalConsumption*100)/100,
+      lead_time_days: leadDays,
+      current_min: curMin, current_max: curMax,
+      recommended_min: recMin, recommended_max: recMax,
+      min_variance: Math.round((recMin-curMin)*100)/100,
+      max_variance: Math.round((recMax-curMax)*100)/100,
+      overstocked, understocked,
+      _monthlyArr: monthlyArr, // keep for pivot
+    });
+  }
+
+  // Exceptions
+  const exceptions = [];
+  for(const r of recs){
+    const reasons=[];
+    if(r.classification==='Dead Stock') reasons.push('Dead Stock — zero usage in 12 months');
+    if(r.overstocked) reasons.push(`Overstocked: ${r.qty_on_hand} on hand vs MAX ${r.recommended_max}`);
+    if(r.understocked && r.classification!=='Dead Stock') reasons.push(`Understocked: ${r.qty_on_hand} on hand vs MIN ${r.recommended_min}`);
+    if(reasons.length){
+      exceptions.push({
+        part_number: r.part_number, description: r.description, store: r.store,
+        classification: r.classification, qty_on_hand: r.qty_on_hand,
+        recommended_min: r.recommended_min, recommended_max: r.recommended_max,
+        exception_reason: reasons.join('; '),
+        action_required: r.classification==='Dead Stock' ? 'Review for disposal'
+          : r.overstocked ? 'Reduce stock / suspend ordering'
+          : 'Place urgent replenishment order',
+      });
+    }
+  }
+
+  // Monthly pivot (for Excel sheet 3)
+  const monthly = recs.map(r=>{
+    const row = {'Part Number': r.part_number};
+    allMonths.forEach((m,i)=>{ row[m]=r._monthlyArr[i]; });
+    return row;
+  });
+
+  // Summary
+  const fastCount  = recs.filter(r=>r.classification==='Fast Mover').length;
+  const slowCount  = recs.filter(r=>r.classification==='Slow Mover').length;
+  const deadCount  = recs.filter(r=>r.classification==='Dead Stock').length;
+  const overCount  = recs.filter(r=>r.overstocked).length;
+  const underCount = recs.filter(r=>r.understocked).length;
+  const okCount    = recs.length - overCount - underCount;
+  const stockValue = Math.round(recs.reduce((s,r)=>s+r.stock_value,0)*100)/100;
+
+  // Chart data
+  const topOverstock = recs.filter(r=>r.overstocked)
+    .sort((a,b)=>b.qty_on_hand-a.qty_on_hand).slice(0,20);
+
+  const trendByMonth = {};
+  allMonths.forEach(m=>trendByMonth[m]=0);
+  recs.forEach(r=>allMonths.forEach((m,i)=>{ trendByMonth[m]+=r._monthlyArr[i]; }));
+
+  return {
+    recs, exceptions, monthly, allMonths,
+    summary:{
+      total_parts: recs.length, fast_movers: fastCount, slow_movers: slowCount,
+      dead_stock: deadCount, overstocked: overCount, understocked: underCount,
+      correctly_stocked: okCount, total_stock_value: stockValue,
+      exceptions_count: exceptions.length,
+    },
+    chartData:{
+      classification:{ labels:['Fast Mover','Slow Mover','Dead Stock'], values:[fastCount,slowCount,deadCount] },
+      stock_status:  { labels:['Overstocked','Understocked','Correctly Stocked'], values:[overCount,underCount,okCount] },
+      top_overstock: topOverstock.map(r=>({part_number:r.part_number, qty_on_hand:r.qty_on_hand, recommended_max:r.recommended_max})),
+      monthly_trend: { labels:allMonths, values:allMonths.map(m=>Math.round(trendByMonth[m]*10)/10) },
+    },
+  };
+}
+</script>
+<script>
+// ── UI helpers ───────────────────────────────────────────────────────────────
+function setProgress(pct, msg){
+  document.getElementById('progress-bar-wrap').style.display='block';
+  document.getElementById('progress-bar').style.width=pct+'%';
+  document.getElementById('status-msg').textContent=msg;
+}
+function showError(msg){
+  const box=document.getElementById('error-box');
+  document.getElementById('error-detail').textContent=msg;
+  box.style.display='block';
+}
+function clearError(){ document.getElementById('error-box').style.display='none'; }
+
+function fileSelected(input, cardId, lblId){
+  const card=document.getElementById(cardId);
+  const lbl=document.getElementById(lblId);
+  if(input.files.length){ card.classList.add('has-file'); lbl.textContent=input.files[0].name; }
+  else { card.classList.remove('has-file'); lbl.textContent='No file chosen'; }
+  const ready=['file-stock','file-trans','file-minmax'].every(id=>document.getElementById(id).files.length>0);
+  document.getElementById('btn-detect').disabled=!ready;
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Step 1: detect columns ───────────────────────────────────────────────────
+async function detectColumns(){
+  clearError();
+  setProgress(10,'Reading files…');
+  try{
+    const files = {
+      stock:  document.getElementById('file-stock').files[0],
+      trans:  document.getElementById('file-trans').files[0],
+      minmax: document.getElementById('file-minmax').files[0],
+    };
+    const aliasMaps = { stock:STOCK_ALIASES, trans:TRANS_ALIASES, minmax:MINMAX_ALIASES };
+    _detectedMaps={};
+    for(const [key, file] of Object.entries(files)){
+      setProgress(20+Object.keys(_detectedMaps).length*20, `Reading ${file.name}…`);
+      const {columns, rows} = await readExcel(file);
+      _parsedFiles[key] = {columns, rows};
+      _detectedMaps[key] = detectCols(columns, aliasMaps[key]);
+    }
+    setProgress(90,'Building mapping UI…');
+    buildMappingUI();
+    setProgress(100,'Column detection complete.');
+    document.getElementById('mapping-section').style.display='block';
+    document.getElementById('mapping-section').scrollIntoView({behavior:'smooth'});
+    checkMappingsReady();
+  } catch(e){
+    showError('Error reading files: '+e.message);
+    setProgress(0,'');
+  }
+}
+
+function buildMappingUI(){
+  const grid=document.getElementById('mapping-grid');
+  grid.innerHTML='';
+  for(const [sheetKey, info] of Object.entries(SHEET_INFO)){
+    const cols = _parsedFiles[sheetKey] ? _parsedFiles[sheetKey].columns : [];
+    const detected = _detectedMaps[sheetKey] || {};
+    const div=document.createElement('div');
+    div.className='mapping-sheet';
+    div.innerHTML=`<h3>${info.label}</h3>`;
+    const aliasMap = sheetKey==='stock'?STOCK_ALIASES:sheetKey==='trans'?TRANS_ALIASES:MINMAX_ALIASES;
+    for(const key of Object.keys(aliasMap)){
+      const label=KEY_LABELS[key]||key;
+      const isOk=!!detected[key];
+      const opts=['<option value="">— not mapped —</option>',
+        ...cols.map(c=>`<option value="${esc(c)}"${detected[key]===c?' selected':''}>${esc(c)}</option>`)
+      ].join('');
+      div.innerHTML+=`<div class="mapping-row">
+        <label>${label}</label>
+        <select class="${isOk?'ok':'warn'}" id="map_${info.prefix}_${key}" onchange="checkMappingsReady()">${opts}</select>
+      </div>`;
+    }
+    grid.appendChild(div);
+  }
+}
+
+function checkMappingsReady(){
+  let allOk=true;
+  for(const [sheetKey, reqKeys] of Object.entries(REQUIRED)){
+    const info=SHEET_INFO[sheetKey];
+    for(const key of reqKeys){
+      const sel=document.getElementById(`map_${info.prefix}_${key}`);
+      if(!sel||!sel.value){ allOk=false; break; }
+    }
+    if(!allOk) break;
+  }
+  document.getElementById('btn-analyse').disabled=!allOk;
+}
+
+// ── Step 2: run analysis ─────────────────────────────────────────────────────
+function runAnalysis(){
+  clearError();
+  document.getElementById('btn-analyse').disabled=true;
+  setProgress(10,'Running MRP analysis…');
+
+  // Build effective column maps from selects
+  const colMaps={};
+  for(const [sheetKey, info] of Object.entries(SHEET_INFO)){
+    const aliasMap=sheetKey==='stock'?STOCK_ALIASES:sheetKey==='trans'?TRANS_ALIASES:MINMAX_ALIASES;
+    const map={};
+    for(const key of Object.keys(aliasMap)){
+      const sel=document.getElementById(`map_${info.prefix}_${key}`);
+      map[key]=sel?sel.value||null:null;
+    }
+    colMaps[sheetKey]=map;
+  }
+
+  // Yield to browser to update progress bar, then run sync
+  setTimeout(()=>{
+    try{
+      setProgress(30,'Processing transactions…');
+      const result = runMRP(
+        _parsedFiles.stock.rows,
+        _parsedFiles.trans.rows,
+        _parsedFiles.minmax.rows,
+        colMaps
+      );
+      _analysisResult=result;
+      setProgress(90,'Rendering dashboard…');
+      renderDashboard(result.summary, result.chartData);
+      setProgress(100,'Analysis complete.');
+      document.getElementById('dashboard-section').style.display='block';
+      document.getElementById('download-section').style.display='block';
+      document.getElementById('dashboard-section').scrollIntoView({behavior:'smooth'});
+    } catch(e){
+      showError('Analysis error: '+e.message+'\n\n'+e.stack);
+      document.getElementById('btn-analyse').disabled=false;
+    }
+  }, 50);
+}
+</script>
+<script>
+// ── Dashboard renderer ───────────────────────────────────────────────────────
+function fmt(n){ return typeof n==='number'?n.toLocaleString(undefined,{maximumFractionDigits:0}):n; }
+function fmtVal(n){ return typeof n==='number'?n.toLocaleString(undefined,{maximumFractionDigits:2}):n; }
+
+function renderDashboard(summary, chartData){
+  const kpiGrid=document.getElementById('kpi-grid');
+  kpiGrid.innerHTML=[
+    {label:'Total Parts',        value:fmt(summary.total_parts),        cls:'kpi-blue'},
+    {label:'Fast Movers',        value:fmt(summary.fast_movers),        cls:'kpi-green'},
+    {label:'Slow Movers',        value:fmt(summary.slow_movers),        cls:'kpi-orange'},
+    {label:'Dead Stock',         value:fmt(summary.dead_stock),         cls:'kpi-red'},
+    {label:'Overstocked',        value:fmt(summary.overstocked),        cls:'kpi-orange'},
+    {label:'Understocked',       value:fmt(summary.understocked),       cls:'kpi-red'},
+    {label:'Correctly Stocked',  value:fmt(summary.correctly_stocked),  cls:'kpi-green'},
+    {label:'Exceptions',         value:fmt(summary.exceptions_count),   cls:'kpi-grey'},
+  ].map(k=>`<div class="kpi-card ${k.cls}"><div class="kpi-value">${k.value}</div><div class="kpi-label">${k.label}</div></div>`).join('');
+
+  destroyChart('chart-class');
+  destroyChart('chart-status');
+  destroyChart('chart-trend');
+  destroyChart('chart-overstock');
+
+  _chartInstances['chart-class']=new Chart(document.getElementById('chart-class').getContext('2d'),{
+    type:'doughnut',
+    data:{labels:chartData.classification.labels,datasets:[{data:chartData.classification.values,backgroundColor:['#2E75B6','#E67E22','#E74C3C'],borderWidth:2}]},
+    options:{plugins:{legend:{position:'bottom'}},cutout:'55%'},
+  });
+
+  _chartInstances['chart-status']=new Chart(document.getElementById('chart-status').getContext('2d'),{
+    type:'doughnut',
+    data:{labels:chartData.stock_status.labels,datasets:[{data:chartData.stock_status.values,backgroundColor:['#E67E22','#E74C3C','#27AE60'],borderWidth:2}]},
+    options:{plugins:{legend:{position:'bottom'}},cutout:'55%'},
+  });
+
+  _chartInstances['chart-trend']=new Chart(document.getElementById('chart-trend').getContext('2d'),{
+    type:'bar',
+    data:{labels:chartData.monthly_trend.labels,datasets:[{label:'Total Consumption',data:chartData.monthly_trend.values,backgroundColor:'rgba(46,117,182,0.7)',borderColor:'#1F4E79',borderWidth:1}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:'Units'}}}},
+  });
+
+  const ov=chartData.top_overstock;
+  _chartInstances['chart-overstock']=new Chart(document.getElementById('chart-overstock').getContext('2d'),{
+    type:'bar',
+    data:{
+      labels:ov.map(d=>d.part_number),
+      datasets:[
+        {label:'Current Stock',   data:ov.map(d=>d.qty_on_hand),      backgroundColor:'rgba(231,76,60,0.75)'},
+        {label:'Recommended MAX', data:ov.map(d=>d.recommended_max),  backgroundColor:'rgba(39,174,96,0.75)'},
+      ],
+    },
+    options:{responsive:true,plugins:{legend:{position:'top'}},scales:{x:{ticks:{maxRotation:45}},y:{beginAtZero:true,title:{display:true,text:'Quantity'}}}},
+  });
+}
+
+function destroyChart(id){
+  if(_chartInstances[id]){ _chartInstances[id].destroy(); delete _chartInstances[id]; }
+}
+
+// ── Excel download ───────────────────────────────────────────────────────────
+function downloadExcel(){
+  if(!_analysisResult){ alert('Run analysis first.'); return; }
+  const {recs, exceptions, monthly} = _analysisResult;
+
+  // Sheet 1: MRP Recommendations
+  const recsData = recs.map(r=>({
+    'Part Number':              r.part_number,
+    'Description':              r.description,
+    'Store':                    r.store,
+    'Classification':           r.classification,
+    'Qty On Hand':              r.qty_on_hand,
+    'Unit Cost':                r.unit_cost,
+    'Stock Value':              r.stock_value,
+    'Mean Monthly Consumption': r.mean_monthly_consumption,
+    'Std Dev Monthly':          r.std_monthly_consumption,
+    'Peak Monthly':             r.peak_monthly_consumption,
+    'Months With Usage':        r.months_with_usage,
+    'Total 12M Consumption':    r.total_12m_consumption,
+    'Lead Time (Days)':         r.lead_time_days,
+    'Current MIN':              r.current_min,
+    'Current MAX':              r.current_max,
+    'Recommended MIN':          r.recommended_min,
+    'Recommended MAX':          r.recommended_max,
+    'MIN Variance':             r.min_variance,
+    'MAX Variance':             r.max_variance,
+    'Overstocked?':             r.overstocked ? 'Yes' : 'No',
+    'Understocked?':            r.understocked ? 'Yes' : 'No',
+  }));
+
+  // Sheet 2: Exceptions
+  const excData = exceptions.length ? exceptions.map(e=>({
+    'Part Number':     e.part_number,
+    'Description':     e.description,
+    'Store':           e.store,
+    'Classification':  e.classification,
+    'Qty On Hand':     e.qty_on_hand,
+    'Recommended MIN': e.recommended_min,
+    'Recommended MAX': e.recommended_max,
+    'Exception Reason':e.exception_reason,
+    'Action Required': e.action_required,
+  })) : [{'Note':'No exceptions found'}];
+
+  const wb = XLSX.utils.book_new();
+
+  const ws1 = XLSX.utils.json_to_sheet(recsData);
+  setColWidths(ws1, [15,30,12,14,12,10,14,22,16,14,16,20,14,12,12,16,16,13,13,13,13]);
+  XLSX.utils.book_append_sheet(wb, ws1, 'MRP Recommendations');
+
+  const ws2 = XLSX.utils.json_to_sheet(excData);
+  setColWidths(ws2, [15,30,12,14,12,16,16,50,30]);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Exceptions');
+
+  const ws3 = XLSX.utils.json_to_sheet(monthly);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Monthly Consumption');
+
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  XLSX.writeFile(wb, `MRP_Analysis_${today}.xlsx`);
+}
+
+function setColWidths(ws, widths){
+  ws['!cols'] = widths.map(w=>({wch:w}));
+}
+</script>
+</body>
+</html>
