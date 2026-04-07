@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Column-name normalisation helpers
@@ -400,7 +400,7 @@ def run_mrp_analysis(stock_df, trans_df, minmax_df,
         'overstocked':   over_count,
         'understocked':  under_count,
         'correctly_stocked': ok_count,
-        'total_stock_value': round(recs_df['stock_value'].sum(), 2),
+        'total_stock_value': float(round(recs_df['stock_value'].sum(), 2)),
         'exceptions_count': len(exc_df),
     }
 
@@ -593,6 +593,11 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok'})
+
+
 @app.route('/detect-columns', methods=['POST'])
 def detect_columns_route():
     """
@@ -692,5 +697,10 @@ def download():
     )
 
 
+@app.errorhandler(413)
+def request_entity_too_large(_):
+    return jsonify({'error': 'Upload too large. Maximum total upload size is 200 MB.'}), 413
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', debug=True, port=5000)

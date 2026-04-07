@@ -286,6 +286,17 @@ function clearError() {
 // ─── Column detection ─────────────────────────────────────────────────────
 async function detectColumns() {
   clearError();
+  setProgress(10, 'Checking server connection…');
+
+  // Pre-flight: verify Flask is reachable before uploading files
+  try {
+    await fetch('/health');
+  } catch (_) {
+    showError('Cannot reach the Flask server.\n\nMake sure it is running:\n  python app.py\n\nThen refresh this page.');
+    setProgress(0, '');
+    return;
+  }
+
   setProgress(20, 'Reading files and detecting columns…');
 
   const fd = new FormData();
@@ -311,7 +322,10 @@ async function detectColumns() {
     checkMappingsReady();
 
   } catch (e) {
-    showError('Network error: ' + e.message);
+    const isConn = e.name === 'TypeError' || e.message.toLowerCase().includes('fetch');
+    showError(isConn
+      ? 'Lost connection to the server. Check that Flask is still running (python app.py).'
+      : 'Network error: ' + e.message);
   }
 }
 
@@ -436,7 +450,10 @@ async function runAnalysis() {
     document.getElementById('dashboard-section').scrollIntoView({ behavior: 'smooth' });
 
   } catch (e) {
-    showError('Network error: ' + e.message);
+    const isConn = e.name === 'TypeError' || e.message.toLowerCase().includes('fetch');
+    showError(isConn
+      ? 'Lost connection to the server. Check that Flask is still running (python app.py).'
+      : 'Network error: ' + e.message);
     document.getElementById('btn-analyse').disabled = false;
   }
 }
