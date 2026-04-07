@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Inventory MRP Analyser — HxGN EAM</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --blue-dark:  #1F4E79;
+    --blue-mid:   #2E75B6;
+    --blue-light: #D6E4F0;
+    --orange:     #E67E22;
+    --green:      #27AE60;
+    --red:        #E74C3C;
+    --grey-bg:    #F4F6F9;
+    --grey-border:#CBD5E0;
+    --text:       #2D3748;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--grey-bg);
+         color: var(--text); line-height: 1.5; }
+
+  /* ── Header ── */
+  header { background: var(--blue-dark); color: #fff; padding: 18px 32px;
+           display: flex; align-items: center; gap: 16px; }
+  header svg { flex-shrink: 0; }
+  header h1 { font-size: 1.4rem; font-weight: 700; }
+  header p  { font-size: 0.85rem; opacity: 0.8; }
+
+  /* ── Layout ── */
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 24px; }
+  .section { background: #fff; border-radius: 10px; border: 1px solid var(--grey-border);
+             padding: 28px; margin-bottom: 24px; }
+  .section h2 { font-size: 1.1rem; color: var(--blue-dark); margin-bottom: 20px;
+                padding-bottom: 10px; border-bottom: 2px solid var(--blue-light); }
+
+  /* ── Upload grid ── */
+  .upload-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                 gap: 20px; }
+  .upload-card { border: 2px dashed var(--grey-border); border-radius: 8px; padding: 20px;
+                 transition: border-color 0.2s; }
+  .upload-card.has-file { border-color: var(--green); background: #F0FFF4; }
+  .upload-card h3 { font-size: 0.95rem; color: var(--blue-dark); margin-bottom: 6px; }
+  .upload-card p  { font-size: 0.8rem; color: #718096; margin-bottom: 14px; }
+  .file-input-wrap { position: relative; }
+  .file-input-wrap input[type=file] { width: 100%; padding: 8px; border: 1px solid var(--grey-border);
+    border-radius: 6px; background: #fff; font-size: 0.85rem; cursor: pointer; }
+  .file-label { display: block; font-size: 0.8rem; margin-top: 6px; color: #718096; }
+
+  /* ── Column mapping ── */
+  #mapping-section { display: none; }
+  .mapping-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                  gap: 16px; }
+  .mapping-sheet { border: 1px solid var(--blue-light); border-radius: 8px; padding: 16px; }
+  .mapping-sheet h3 { font-size: 0.9rem; font-weight: 700; color: var(--blue-dark);
+                      margin-bottom: 12px; }
+  .mapping-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .mapping-row label { flex: 0 0 160px; font-size: 0.82rem; }
+  .mapping-row select { flex: 1; padding: 5px 8px; border: 1px solid var(--grey-border);
+                        border-radius: 5px; font-size: 0.82rem; }
+  .mapping-row select.ok    { border-color: var(--green); background: #F0FFF4; }
+  .mapping-row select.warn  { border-color: var(--orange); background: #FFF8F0; }
+
+  /* ── Buttons ── */
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 24px;
+         border: none; border-radius: 6px; font-size: 0.9rem; font-weight: 600;
+         cursor: pointer; transition: opacity 0.2s; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary  { background: var(--blue-mid); color: #fff; }
+  .btn-success  { background: var(--green); color: #fff; }
+  .btn-warning  { background: var(--orange); color: #fff; }
+  .btn:not(:disabled):hover { opacity: 0.87; }
+  .btn-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+
+  /* ── Progress / errors ── */
+  #progress-bar-wrap { display: none; margin-top: 16px; }
+  .progress-bar-bg { background: var(--blue-light); border-radius: 9999px; height: 8px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; background: var(--blue-mid); border-radius: 9999px;
+                       width: 0%; transition: width 0.4s; }
+  #status-msg { margin-top: 10px; font-size: 0.85rem; color: var(--blue-dark); }
+  .error-box  { background: #FFF5F5; border: 1px solid #FEB2B2; border-radius: 6px;
+                padding: 14px 18px; color: #C53030; font-size: 0.85rem; display: none; }
+  .error-box pre { white-space: pre-wrap; margin-top: 8px; font-size: 0.78rem; }
+
+  /* ── Dashboard ── */
+  #dashboard-section { display: none; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+              gap: 14px; margin-bottom: 24px; }
+  .kpi-card { border-radius: 8px; padding: 16px 20px; text-align: center; }
+  .kpi-card .kpi-value { font-size: 2rem; font-weight: 800; line-height: 1; }
+  .kpi-card .kpi-label { font-size: 0.78rem; margin-top: 4px; opacity: 0.85; }
+  .kpi-blue   { background: var(--blue-dark); color: #fff; }
+  .kpi-green  { background: #EBF8F0; color: var(--green); }
+  .kpi-orange { background: #FFF3E0; color: var(--orange); }
+  .kpi-red    { background: #FFF5F5; color: var(--red); }
+  .kpi-grey   { background: #EDF2F7; color: #4A5568; }
+
+  .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+                 gap: 20px; }
+  .chart-card { border: 1px solid var(--grey-border); border-radius: 8px; padding: 20px; }
+  .chart-card h3 { font-size: 0.9rem; font-weight: 700; color: var(--blue-dark);
+                   margin-bottom: 14px; }
+  .chart-card canvas { max-height: 300px; }
+
+  /* ── Download section ── */
+  #download-section { display: none; }
+  .download-card { background: linear-gradient(135deg, #1F4E79, #2E75B6);
+                   border-radius: 10px; padding: 28px; color: #fff; text-align: center; }
+  .download-card h3 { font-size: 1.2rem; margin-bottom: 8px; }
+  .download-card p  { opacity: 0.85; margin-bottom: 20px; font-size: 0.9rem; }
+
+  /* ── Tooltip helper ── */
+  .tip { font-size: 0.78rem; color: #718096; margin-left: 4px; cursor: help;
+         text-decoration: underline dotted; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+    <rect width="36" height="36" rx="8" fill="#2E75B6"/>
+    <path d="M8 26V14l10-6 10 6v12H22v-6h-8v6H8Z" fill="white" opacity="0.9"/>
+    <rect x="15" y="20" width="6" height="6" fill="#1F4E79"/>
+  </svg>
+  <div>
+    <h1>Inventory MRP Analyser</h1>
+    <p>HxGN EAM (Infor EAM) — Storeroom MIN/MAX Optimisation</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Upload section ── -->
+  <div class="section" id="upload-section">
+    <h2>Step 1 — Upload EAM Exports</h2>
+    <div class="upload-grid">
+
+      <div class="upload-card" id="card-stock">
+        <h3>Stock On Hand</h3>
+        <p>Part number · Description · Qty on hand · Unit cost · Store / Location</p>
+        <div class="file-input-wrap">
+          <input type="file" id="file-stock" accept=".xlsx,.xls,.csv" onchange="fileSelected(this,'card-stock','lbl-stock')">
+          <span class="file-label" id="lbl-stock">No file chosen</span>
+        </div>
+      </div>
+
+      <div class="upload-card" id="card-trans">
+        <h3>Transactions (12 months)</h3>
+        <p>Part · Date · Type (I / REC / STTK) · Qty · Work Order · Asset · To/From Code</p>
+        <div class="file-input-wrap">
+          <input type="file" id="file-trans" accept=".xlsx,.xls,.csv" onchange="fileSelected(this,'card-trans','lbl-trans')">
+          <span class="file-label" id="lbl-trans">No file chosen</span>
+        </div>
+      </div>
+
+      <div class="upload-card" id="card-minmax">
+        <h3>Current MIN / MAX</h3>
+        <p>Part number · Current MIN · Current MAX · Lead time (days)</p>
+        <div class="file-input-wrap">
+          <input type="file" id="file-minmax" accept=".xlsx,.xls,.csv" onchange="fileSelected(this,'card-minmax','lbl-minmax')">
+          <span class="file-label" id="lbl-minmax">No file chosen</span>
+        </div>
+      </div>
+
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-detect" onclick="detectColumns()" disabled>
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+             viewBox="0 0 24 24"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
+        Detect Columns
+      </button>
+    </div>
+    <div id="progress-bar-wrap">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-bar"></div></div>
+      <p id="status-msg"></p>
+    </div>
+    <div class="error-box" id="error-box">
+      <strong>Error</strong>
+      <pre id="error-detail"></pre>
+    </div>
+  </div>
+
+  <!-- ── Column mapping section ── -->
+  <div class="section" id="mapping-section">
+    <h2>Step 2 — Confirm Column Mapping</h2>
+    <p style="font-size:0.85rem;color:#718096;margin-bottom:18px;">
+      Auto-detected mappings are shown below. Green = confident match, orange = not found (please select manually).
+      All <strong>required</strong> columns must be mapped before analysis.
+    </p>
+    <div class="mapping-grid" id="mapping-grid"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-analyse" onclick="runAnalysis()" disabled>
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+             viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Run MRP Analysis
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Dashboard ── -->
+  <div class="section" id="dashboard-section">
+    <h2>Analysis Dashboard</h2>
+
+    <div class="kpi-grid" id="kpi-grid"></div>
+
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h3>Parts by Classification</h3>
+        <canvas id="chart-class"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Stock Status</h3>
+        <canvas id="chart-status"></canvas>
+      </div>
+      <div class="chart-card" style="grid-column: 1 / -1;">
+        <h3>Monthly Total Consumption Trend</h3>
+        <canvas id="chart-trend"></canvas>
+      </div>
+      <div class="chart-card" style="grid-column: 1 / -1;">
+        <h3>Top 20 Overstocked Parts — Current Stock vs Recommended MAX</h3>
+        <canvas id="chart-overstock"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Download ── -->
+  <div class="section" id="download-section">
+    <div class="download-card">
+      <h3>Analysis Complete</h3>
+      <p>Three-tab Excel workbook ready: MRP Recommendations · Exceptions · Monthly Consumption</p>
+      <a href="/download" class="btn btn-success" style="display:inline-flex;text-decoration:none;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+             viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Download Excel Report
+      </a>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────
+let detectedMappings = null;
+let chartInstances   = {};
+
+// ─── File selection helpers ───────────────────────────────────────────────
+function fileSelected(input, cardId, lblId) {
+  const card = document.getElementById(cardId);
+  const lbl  = document.getElementById(lblId);
+  if (input.files.length) {
+    card.classList.add('has-file');
+    lbl.textContent = input.files[0].name;
+  } else {
+    card.classList.remove('has-file');
+    lbl.textContent = 'No file chosen';
+  }
+  checkFilesReady();
+}
+
+function checkFilesReady() {
+  const ready = ['file-stock','file-trans','file-minmax']
+    .every(id => document.getElementById(id).files.length > 0);
+  document.getElementById('btn-detect').disabled = !ready;
+}
+
+// ─── Progress helpers ─────────────────────────────────────────────────────
+function setProgress(pct, msg) {
+  document.getElementById('progress-bar-wrap').style.display = 'block';
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('status-msg').textContent = msg;
+}
+
+function showError(msg, trace) {
+  const box = document.getElementById('error-box');
+  document.getElementById('error-detail').textContent =
+    msg + (trace ? '\n\n' + trace : '');
+  box.style.display = 'block';
+  setProgress(0, '');
+}
+
+function clearError() {
+  document.getElementById('error-box').style.display = 'none';
+}
+
+// ─── Column detection ─────────────────────────────────────────────────────
+async function detectColumns() {
+  clearError();
+  setProgress(20, 'Reading files and detecting columns…');
+
+  const fd = new FormData();
+  fd.append('stock',        document.getElementById('file-stock').files[0]);
+  fd.append('transactions', document.getElementById('file-trans').files[0]);
+  fd.append('minmax',       document.getElementById('file-minmax').files[0]);
+
+  try {
+    const res  = await fetch('/detect-columns', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (data.error) {
+      showError(data.error, data.trace);
+      return;
+    }
+
+    detectedMappings = data;
+    setProgress(60, 'Building column mapping UI…');
+    buildMappingUI(data);
+    setProgress(100, 'Column detection complete. Review mappings below.');
+    document.getElementById('mapping-section').style.display = 'block';
+    document.getElementById('mapping-section').scrollIntoView({ behavior: 'smooth' });
+    checkMappingsReady();
+
+  } catch (e) {
+    showError('Network error: ' + e.message);
+  }
+}
+
+// ─── Mapping UI builder ───────────────────────────────────────────────────
+const SHEET_LABELS = {
+  stock:        { label: 'Stock On Hand',          prefix: 'stock' },
+  transactions: { label: 'Transactions',            prefix: 'trans' },
+  minmax:       { label: 'Current MIN / MAX',       prefix: 'minmax' },
+};
+
+const REQUIRED_KEYS = {
+  stock:        ['part_number', 'qty_on_hand'],
+  transactions: ['part_number', 'posting_date', 'trans_type', 'trans_qty', 'to_from_code'],
+  minmax:       ['part_number', 'current_min', 'current_max'],
+};
+
+const KEY_LABELS = {
+  part_number: 'Part Number *', description: 'Description',
+  qty_on_hand: 'Qty on Hand *', unit_cost: 'Unit Cost', store: 'Store / Location',
+  posting_date: 'Posting Date *', trans_type: 'Transaction Type *',
+  trans_qty: 'Transaction Qty *', work_order: 'Work Order', asset: 'Asset / Fleet',
+  to_from_code: 'To / From Code *',
+  current_min: 'Current MIN *', current_max: 'Current MAX *', lead_time: 'Lead Time (days)',
+};
+
+function buildMappingUI(data) {
+  const grid = document.getElementById('mapping-grid');
+  grid.innerHTML = '';
+
+  for (const [sheetKey, info] of Object.entries(SHEET_LABELS)) {
+    const sheetData = data[sheetKey];
+    if (!sheetData) continue;
+
+    const div = document.createElement('div');
+    div.className = 'mapping-sheet';
+    div.innerHTML = `<h3>${info.label}</h3>`;
+
+    for (const [logicalKey, detectedCol] of Object.entries(sheetData.detected)) {
+      const label = KEY_LABELS[logicalKey] || logicalKey;
+      const isOk  = !!detectedCol;
+      const options = ['<option value="">— not mapped —</option>',
+        ...sheetData.columns.map(c =>
+          `<option value="${esc(c)}" ${detectedCol === c ? 'selected' : ''}>${esc(c)}</option>`)
+      ].join('');
+
+      div.innerHTML += `
+        <div class="mapping-row">
+          <label title="${esc(logicalKey)}">${label}</label>
+          <select class="${isOk ? 'ok' : 'warn'}"
+                  name="${info.prefix}_${logicalKey}"
+                  id="map_${info.prefix}_${logicalKey}"
+                  onchange="checkMappingsReady()">
+            ${options}
+          </select>
+        </div>`;
+    }
+    grid.appendChild(div);
+  }
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function checkMappingsReady() {
+  if (!detectedMappings) return;
+  let allOk = true;
+  for (const [sheetKey, reqKeys] of Object.entries(REQUIRED_KEYS)) {
+    const info = SHEET_LABELS[sheetKey];
+    for (const key of reqKeys) {
+      const sel = document.getElementById(`map_${info.prefix}_${key}`);
+      if (!sel || !sel.value) { allOk = false; break; }
+    }
+    if (!allOk) break;
+  }
+  document.getElementById('btn-analyse').disabled = !allOk;
+}
+
+// ─── Run analysis ─────────────────────────────────────────────────────────
+async function runAnalysis() {
+  clearError();
+  setProgress(10, 'Uploading files and running analysis…');
+  document.getElementById('btn-analyse').disabled = true;
+
+  const fd = new FormData();
+  fd.append('stock',        document.getElementById('file-stock').files[0]);
+  fd.append('transactions', document.getElementById('file-trans').files[0]);
+  fd.append('minmax',       document.getElementById('file-minmax').files[0]);
+
+  // Collect mapping overrides from selects
+  if (detectedMappings) {
+    for (const [sheetKey, info] of Object.entries(SHEET_LABELS)) {
+      const sheetData = detectedMappings[sheetKey];
+      if (!sheetData) continue;
+      for (const logicalKey of Object.keys(sheetData.detected)) {
+        const sel = document.getElementById(`map_${info.prefix}_${logicalKey}`);
+        if (sel && sel.value) {
+          fd.append(`${info.prefix}_${logicalKey}`, sel.value);
+        }
+      }
+    }
+  }
+
+  try {
+    setProgress(30, 'Processing transactions…');
+    const res  = await fetch('/analyse', { method: 'POST', body: fd });
+    setProgress(80, 'Generating Excel output…');
+    const data = await res.json();
+
+    if (data.error) {
+      showError(data.error, data.trace);
+      document.getElementById('btn-analyse').disabled = false;
+      return;
+    }
+
+    setProgress(100, 'Analysis complete.');
+    renderDashboard(data.summary, data.chart_data);
+    document.getElementById('dashboard-section').style.display  = 'block';
+    document.getElementById('download-section').style.display   = 'block';
+    document.getElementById('dashboard-section').scrollIntoView({ behavior: 'smooth' });
+
+  } catch (e) {
+    showError('Network error: ' + e.message);
+    document.getElementById('btn-analyse').disabled = false;
+  }
+}
+
+// ─── Dashboard renderer ───────────────────────────────────────────────────
+function fmt(n) {
+  return typeof n === 'number'
+    ? n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    : n;
+}
+
+function renderDashboard(summary, chartData) {
+  // KPI cards
+  const kpiGrid = document.getElementById('kpi-grid');
+  const kpis = [
+    { label: 'Total Parts', value: fmt(summary.total_parts),    cls: 'kpi-blue'   },
+    { label: 'Fast Movers', value: fmt(summary.fast_movers),    cls: 'kpi-green'  },
+    { label: 'Slow Movers', value: fmt(summary.slow_movers),    cls: 'kpi-orange' },
+    { label: 'Dead Stock',  value: fmt(summary.dead_stock),     cls: 'kpi-red'    },
+    { label: 'Overstocked', value: fmt(summary.overstocked),    cls: 'kpi-orange' },
+    { label: 'Understocked',value: fmt(summary.understocked),   cls: 'kpi-red'    },
+    { label: 'Correctly Stocked', value: fmt(summary.correctly_stocked), cls: 'kpi-green' },
+    { label: 'Exceptions',  value: fmt(summary.exceptions_count), cls: 'kpi-grey' },
+  ];
+  kpiGrid.innerHTML = kpis.map(k => `
+    <div class="kpi-card ${k.cls}">
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-label">${k.label}</div>
+    </div>`).join('');
+
+  destroyChart('chart-class');
+  destroyChart('chart-status');
+  destroyChart('chart-trend');
+  destroyChart('chart-overstock');
+
+  // Classification doughnut
+  const clsCtx = document.getElementById('chart-class').getContext('2d');
+  chartInstances['chart-class'] = new Chart(clsCtx, {
+    type: 'doughnut',
+    data: {
+      labels: chartData.classification.labels,
+      datasets: [{ data: chartData.classification.values,
+                   backgroundColor: ['#2E75B6','#E67E22','#E74C3C'],
+                   borderWidth: 2 }]
+    },
+    options: { plugins: { legend: { position: 'bottom' } }, cutout: '55%' }
+  });
+
+  // Stock status pie
+  const statusCtx = document.getElementById('chart-status').getContext('2d');
+  chartInstances['chart-status'] = new Chart(statusCtx, {
+    type: 'doughnut',
+    data: {
+      labels: chartData.stock_status.labels,
+      datasets: [{ data: chartData.stock_status.values,
+                   backgroundColor: ['#E67E22','#E74C3C','#27AE60'],
+                   borderWidth: 2 }]
+    },
+    options: { plugins: { legend: { position: 'bottom' } }, cutout: '55%' }
+  });
+
+  // Monthly trend line
+  const trendCtx = document.getElementById('chart-trend').getContext('2d');
+  chartInstances['chart-trend'] = new Chart(trendCtx, {
+    type: 'bar',
+    data: {
+      labels: chartData.monthly_trend.labels,
+      datasets: [{
+        label: 'Total Consumption',
+        data: chartData.monthly_trend.values,
+        backgroundColor: 'rgba(46,117,182,0.7)',
+        borderColor: '#1F4E79',
+        borderWidth: 1,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'Units' } } }
+    }
+  });
+
+  // Overstock bar
+  const ovCtx = document.getElementById('chart-overstock').getContext('2d');
+  const ovData = chartData.top_overstock;
+  chartInstances['chart-overstock'] = new Chart(ovCtx, {
+    type: 'bar',
+    data: {
+      labels: ovData.map(d => d.part_number),
+      datasets: [
+        { label: 'Current Stock',    data: ovData.map(d => d.qty_on_hand),
+          backgroundColor: 'rgba(231,76,60,0.75)' },
+        { label: 'Recommended MAX',  data: ovData.map(d => d.recommended_max),
+          backgroundColor: 'rgba(39,174,96,0.75)' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        x: { ticks: { maxRotation: 45 } },
+        y: { beginAtZero: true, title: { display: true, text: 'Quantity' } }
+      }
+    }
+  });
+}
+
+function destroyChart(id) {
+  if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+}
+</script>
+</body>
+</html>
