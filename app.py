@@ -53,7 +53,10 @@ TRANS_ALIASES = {
     'asset':        ['fleet/bus number', 'asset', 'bus number', 'fleet number',
                      'equipment', 'asset number', 'fleet', 'bus no'],
     'to_from_code': ['to/from code', 'tocode', 'fromcode', 'to code', 'from code',
-                     'to/from', 'store code', 'destination'],
+                     'to/from', 'destination'],
+    'trans_store':  ['store', 'storeroom', 'from store', 'issue store',
+                     'from stock', 'store code', 'transaction store',
+                     'trans store'],
 }
 
 MINMAX_ALIASES = {
@@ -115,6 +118,33 @@ def mode_order_qty(series):
         return 10
     counts = vals.value_counts()
     return int(counts.idxmax()) if not counts.empty else 10
+
+
+def consumption_qty(row):
+    # CONSUMPTION = True for:
+    #   I  + to_from_code=EVNT + negative qty  → issue to bus
+    #   I  + to_from_code=STOR + positive qty  → return (negative consumption)
+    #   REC + to_from_code=EVNT               → direct to bus
+    #   STTK + negative qty                   → unrecorded usage
+    # NOT consumption:
+    #   REC + to_from_code=STOR               → goods in
+    #   STTK + positive qty                   → stock found
+    t = row.get('trans_type', '')
+    c = row.get('to_from_code', '')
+    q = row.get('trans_qty', 0)
+
+    if t == 'I':
+        if c == 'EVNT' and q < 0:
+            return abs(q)
+        if c == 'STOR' and q > 0:
+            return -q
+    elif t == 'REC':
+        if c == 'EVNT':
+            return abs(q)
+    elif t == 'STTK':
+        if q < 0:
+            return abs(q)
+    return 0
 
 
 def run_mrp_analysis(stock_df, trans_df, minmax_df,
@@ -179,38 +209,7 @@ def run_mrp_analysis(stock_df, trans_df, minmax_df,
     else:
         minmax['lead_time'] = np.nan
 
-    # ── Filter to consumption transactions ────────────────────────────────
-    #
-    # CONSUMPTION = True for:
-    #   I  + to_from_code=EVNT + negative qty  → issue to bus
-    #   I  + to_from_code=STOR + positive qty  → return (negative consumption)
-    #   REC + to_from_code=EVNT               → direct to bus
-    #   STTK + negative qty                   → unrecorded usage
-    #
-    # NOT consumption:
-    #   REC + to_from_code=STOR               → goods in
-    #   STTK + positive qty                   → stock found
-
-    def consumption_qty(row):
-        t = row.get('trans_type', '')
-        c = row.get('to_from_code', '')
-        q = row.get('trans_qty', 0)
-
-        if t == 'I':
-            if c == 'EVNT' and q < 0:
-                return abs(q)       # issue to bus — positive consumption
-            if c == 'STOR' and q > 0:
-                return -q           # return to stock — negative consumption
-        elif t == 'REC':
-            if c == 'EVNT':
-                return abs(q)       # direct delivery to bus
-            # REC to STOR = goods in, not consumption
-        elif t == 'STTK':
-            if q < 0:
-                return abs(q)       # unrecorded usage
-            # positive STTK = stock found, exclude
-        return 0
-
+    # ── Filter to consumption transactions (see consumption_qty above) ────
     trans['consumption'] = trans.apply(consumption_qty, axis=1)
 
     # also tag REC-to-STOR for order qty mode calculation
@@ -258,7 +257,17 @@ def run_mrp_analysis(stock_df, trans_df, minmax_df,
     )
 
     minmax_idx = minmax.set_index('part_number') if 'part_number' in minmax.columns else pd.DataFrame()
-    stock_idx  = stock.set_index('part_number')  if 'part_number' in stock.columns  else pd.DataFrame()
+
+    # Aggregate stock to one row per part (files often have one row per storeroom)
+    if 'part_number' in stock.columns:
+        agg = {}
+        if 'qty_on_hand' in stock.columns: agg['qty_on_hand'] = 'sum'
+        if 'unit_cost'   in stock.columns: agg['unit_cost']   = 'max'
+        if 'description' in stock.columns: agg['description'] = 'first'
+        if 'store'       in stock.columns: agg['store']       = lambda s: '/'.join(sorted(set(str(x) for x in s if pd.notna(x) and str(x) != '')))
+        stock_idx = stock.groupby('part_number', as_index=True).agg(agg) if agg else stock.set_index('part_number')
+    else:
+        stock_idx = pd.DataFrame()
 
     for part in all_parts:
         part_monthly = monthly_full[monthly_full['part_number'] == part]['consumption'].values
@@ -443,6 +452,176 @@ def run_mrp_analysis(stock_df, trans_df, minmax_df,
     }
 
     return recs_df, exc_df, pivot, summary, chart_data
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Depot reallocation analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_depot_recommendations(stock_df, trans_df,
+                              stock_map, trans_map,
+                              stock_overrides=None, trans_overrides=None):
+    """
+    Per-depot slow-moving analysis.
+
+    For every (part, holding_store) on hand, if there were zero issues of
+    that part from that storeroom in the last 12 months, recommend moving
+    it to the storeroom with the most issues of that part.
+
+    Returns:
+      {
+        'available': bool,
+        'reason':    str | None,
+        'recommendations': [...],
+        'top_for_chart':   [...],   # first 20 by stock_value
+      }
+    """
+    stock = apply_mapping(stock_df.copy(), dict(stock_map), stock_overrides)
+    trans = apply_mapping(trans_df.copy(), dict(trans_map), trans_overrides)
+
+    if 'trans_store' not in trans.columns:
+        return {
+            'available': False,
+            'reason': 'Transactions file has no storeroom/store column — '
+                      'cannot determine which depot issues each part.',
+            'recommendations': [],
+            'top_for_chart': [],
+        }
+
+    if 'store' not in stock.columns:
+        return {
+            'available': False,
+            'reason': 'Stock file has no store/location column — '
+                      'cannot tell where stock is held.',
+            'recommendations': [],
+            'top_for_chart': [],
+        }
+
+    for df, col in [(stock, 'part_number'), (trans, 'part_number')]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip().str.upper()
+
+    for df, col in [(stock, 'store'), (trans, 'trans_store')]:
+        df[col] = df[col].astype(str).str.strip().str.upper()
+        df.loc[df[col].isin(['', 'NAN', 'NONE']), col] = ''
+
+    if 'qty_on_hand' in stock.columns:
+        stock['qty_on_hand'] = pd.to_numeric(stock['qty_on_hand'], errors='coerce').fillna(0)
+    else:
+        stock['qty_on_hand'] = 0
+    if 'unit_cost' in stock.columns:
+        stock['unit_cost'] = pd.to_numeric(stock['unit_cost'], errors='coerce').fillna(0)
+    else:
+        stock['unit_cost'] = 0
+    if 'description' not in stock.columns:
+        stock['description'] = ''
+
+    if 'trans_qty' in trans.columns:
+        trans['trans_qty'] = pd.to_numeric(trans['trans_qty'], errors='coerce').fillna(0)
+    else:
+        return {
+            'available': False,
+            'reason': 'Transactions file has no quantity column.',
+            'recommendations': [],
+            'top_for_chart': [],
+        }
+
+    if 'posting_date' in trans.columns:
+        trans['posting_date'] = pd.to_datetime(trans['posting_date'],
+                                               errors='coerce', dayfirst=True)
+        trans['month'] = trans['posting_date'].dt.to_period('M')
+    else:
+        return {
+            'available': False,
+            'reason': 'Transactions file has no posting date column.',
+            'recommendations': [],
+            'top_for_chart': [],
+        }
+
+    for col in ['trans_type', 'to_from_code']:
+        if col in trans.columns:
+            trans[col] = trans[col].astype(str).str.strip().str.upper()
+        else:
+            trans[col] = ''
+
+    all_months = sorted(trans['month'].dropna().unique())
+    recent_months = set(all_months[-12:] if len(all_months) > 12 else all_months)
+    trans = trans[trans['month'].isin(recent_months)].copy()
+
+    trans['consumption'] = trans.apply(consumption_qty, axis=1)
+    issues = trans[trans['consumption'] > 0].copy()
+    issues = issues[issues['trans_store'] != '']
+
+    issues_by_ps = (
+        issues.groupby(['part_number', 'trans_store'])
+        .agg(issued_qty=('consumption', 'sum'),
+             months_with_usage=('month', 'nunique'))
+        .reset_index()
+    )
+
+    stock_rows = stock[stock['store'] != ''].copy()
+    stock_by_ps = (
+        stock_rows.groupby(['part_number', 'store'], as_index=False)
+        .agg(qty_on_hand=('qty_on_hand', 'sum'),
+             unit_cost=('unit_cost', 'max'),
+             description=('description', 'first'))
+    )
+    stock_by_ps = stock_by_ps[stock_by_ps['qty_on_hand'] > 0]
+
+    recommendations = []
+
+    issues_lookup = {
+        (r['part_number'], r['trans_store']): (r['issued_qty'], r['months_with_usage'])
+        for _, r in issues_by_ps.iterrows()
+    }
+
+    top_per_part = (
+        issues_by_ps.sort_values('issued_qty', ascending=False)
+        .groupby('part_number').first().reset_index()
+    )
+    best_store_by_part = {
+        r['part_number']: (r['trans_store'], r['issued_qty'], r['months_with_usage'])
+        for _, r in top_per_part.iterrows()
+    }
+
+    for _, row in stock_by_ps.iterrows():
+        part = row['part_number']
+        holding_store = row['store']
+        qty_oh = float(row['qty_on_hand'])
+        unit_cost = float(row['unit_cost'])
+
+        best = best_store_by_part.get(part)
+        if best is None:
+            continue
+        rec_store, rec_issued, rec_months = best
+        if rec_store == holding_store:
+            continue
+
+        issued_here, _ = issues_lookup.get((part, holding_store), (0, 0))
+        if issued_here > 0:
+            continue
+
+        recommendations.append({
+            'part_number': part,
+            'description': str(row['description']) if pd.notna(row['description']) else '',
+            'current_store': holding_store,
+            'qty_on_hand': qty_oh,
+            'unit_cost': unit_cost,
+            'stock_value': round(qty_oh * unit_cost, 2),
+            'recommended_store': rec_store,
+            'issues_at_recommended_12m': round(float(rec_issued), 2),
+            'months_with_usage_at_recommended': int(rec_months),
+            'issues_at_current_12m': 0,
+        })
+
+    recommendations.sort(key=lambda r: r['stock_value'], reverse=True)
+
+    return {
+        'available': True,
+        'reason': None,
+        'recommendations': recommendations,
+        'top_for_chart': recommendations[:20],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -668,6 +847,12 @@ def analyse():
             stock_overrides, trans_overrides, minmax_overrides,
         )
 
+        depot_recs = run_depot_recommendations(
+            stock_df, trans_df,
+            stock_map, trans_map,
+            stock_overrides, trans_overrides,
+        )
+
         # Cache Excel
         excel_bytes = build_excel(recs_df, exc_df, monthly_df)
         _analysis_cache['excel'] = excel_bytes.read()
@@ -678,6 +863,7 @@ def analyse():
         return jsonify({
             'summary':    summary,
             'chart_data': chart_data,
+            'depot_recommendations': depot_recs,
             'status':     'ok',
         })
 

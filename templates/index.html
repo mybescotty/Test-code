@@ -113,6 +113,20 @@
   /* ── Tooltip helper ── */
   .tip { font-size: 0.78rem; color: #718096; margin-left: 4px; cursor: help;
          text-decoration: underline dotted; }
+
+  /* ── Depot reallocation panel ── */
+  .muted { font-size: 0.85rem; color: #718096; margin-bottom: 12px; }
+  .depot-table { width: 100%; border-collapse: collapse; font-size: 0.85rem;
+                 margin-top: 6px; }
+  .depot-table th, .depot-table td { padding: 8px 10px; border-bottom: 1px solid #E2E8F0;
+                                     text-align: left; }
+  .depot-table th { background: #F7FAFC; color: var(--blue-dark); font-weight: 700; }
+  .depot-table tr:hover td { background: #F7FAFC; }
+  .depot-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .depot-pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
+                background: #EDF2F7; color: #2D3748; font-size: 0.78rem;
+                font-weight: 600; }
+  .depot-arrow { color: var(--blue); padding: 0 6px; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -220,6 +234,12 @@
       <div class="chart-card" style="grid-column: 1 / -1;">
         <h3>Top 20 Overstocked Parts — Current Stock vs Recommended MAX</h3>
         <canvas id="chart-overstock"></canvas>
+      </div>
+      <div class="chart-card" style="grid-column: 1 / -1;" id="depot-card">
+        <h3>Recommended Depot Reallocation — Slow-Moving Stock</h3>
+        <p id="depot-subtitle" class="muted"></p>
+        <canvas id="chart-depot"></canvas>
+        <div id="depot-table-wrap"></div>
       </div>
     </div>
   </div>
@@ -444,7 +464,7 @@ async function runAnalysis() {
     }
 
     setProgress(100, 'Analysis complete.');
-    renderDashboard(data.summary, data.chart_data);
+    renderDashboard(data.summary, data.chart_data, data.depot_recommendations);
     document.getElementById('dashboard-section').style.display  = 'block';
     document.getElementById('download-section').style.display   = 'block';
     document.getElementById('dashboard-section').scrollIntoView({ behavior: 'smooth' });
@@ -465,7 +485,7 @@ function fmt(n) {
     : n;
 }
 
-function renderDashboard(summary, chartData) {
+function renderDashboard(summary, chartData, depotRecs) {
   // KPI cards
   const kpiGrid = document.getElementById('kpi-grid');
   const kpis = [
@@ -488,6 +508,7 @@ function renderDashboard(summary, chartData) {
   destroyChart('chart-status');
   destroyChart('chart-trend');
   destroyChart('chart-overstock');
+  destroyChart('chart-depot');
 
   // Classification doughnut
   const clsCtx = document.getElementById('chart-class').getContext('2d');
@@ -559,6 +580,92 @@ function renderDashboard(summary, chartData) {
       }
     }
   });
+
+  renderDepotPanel(depotRecs);
+}
+
+function renderDepotPanel(depotRecs) {
+  const subtitle = document.getElementById('depot-subtitle');
+  const tableWrap = document.getElementById('depot-table-wrap');
+  const canvas = document.getElementById('chart-depot');
+
+  if (!depotRecs || !depotRecs.available) {
+    subtitle.textContent = depotRecs && depotRecs.reason
+      ? depotRecs.reason
+      : 'Depot reallocation analysis not available.';
+    canvas.style.display = 'none';
+    tableWrap.innerHTML = '';
+    return;
+  }
+
+  const recs = depotRecs.recommendations || [];
+  if (recs.length === 0) {
+    subtitle.textContent = 'No slow-moving stock detected at the wrong depot — nothing to redistribute.';
+    canvas.style.display = 'none';
+    tableWrap.innerHTML = '';
+    return;
+  }
+
+  subtitle.textContent =
+    recs.length + ' part-depot combinations held at a depot that has not issued them in the last 12 months.';
+  canvas.style.display = '';
+
+  const top = depotRecs.top_for_chart || recs.slice(0, 20);
+  const ctx = canvas.getContext('2d');
+  chartInstances['chart-depot'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(r => r.part_number + '  ' + r.current_store + ' \u2192 ' + r.recommended_store),
+      datasets: [{
+        label: 'Stock value at wrong depot (\u00a3)',
+        data: top.map(r => r.stock_value),
+        backgroundColor: 'rgba(230,126,34,0.75)',
+        borderColor: '#B9770E',
+        borderWidth: 1,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, title: { display: true, text: 'Stock value (\u00a3)' } } }
+    }
+  });
+
+  const rows = recs.map(r => `
+    <tr>
+      <td>${escapeHtml(r.part_number)}</td>
+      <td>${escapeHtml(r.description || '')}</td>
+      <td><span class="depot-pill">${escapeHtml(r.current_store)}</span></td>
+      <td class="num">${fmt(r.qty_on_hand)}</td>
+      <td class="num">${fmt(r.stock_value)}</td>
+      <td><span class="depot-arrow">\u2192</span><span class="depot-pill">${escapeHtml(r.recommended_store)}</span></td>
+      <td class="num">${fmt(r.issues_at_recommended_12m)}</td>
+      <td class="num">${fmt(r.months_with_usage_at_recommended)}</td>
+    </tr>`).join('');
+
+  tableWrap.innerHTML = `
+    <table class="depot-table">
+      <thead>
+        <tr>
+          <th>Part</th>
+          <th>Description</th>
+          <th>Current depot</th>
+          <th class="num">Qty on hand</th>
+          <th class="num">Stock value (\u00a3)</th>
+          <th>Recommended depot</th>
+          <th class="num">Issues @ recommended (12m)</th>
+          <th class="num">Months used</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
 }
 
 function destroyChart(id) {
